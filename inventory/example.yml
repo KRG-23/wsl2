@@ -1,0 +1,18 @@
+# Copy to ignored inventory/local.yml or run scripts/configure.py.
+workstation_profile: base
+workstation_user: developer
+workstation_uid: 1000
+workstation_gid: 1000
+windows_home: /mnt/c/Users/YOUR_WINDOWS_USER
+git_name: ''
+git_email: ''
+enable_docker: true
+enable_terraform: true
+enable_node: true
+enable_uv: true
+enable_bedrock: false
+enable_corporate_ca: false
+enable_aws_windows_link: false
+enable_azure_windows_link: false
+enable_local_autostart: false
+extra_apt_packages: []

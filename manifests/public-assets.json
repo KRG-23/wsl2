@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "name": "oh-my-zsh",
+      "revision": "b509b1c6ed0c1ba37de12cbd37f30b2b2f61193a",
+      "url": "https://codeload.github.com/ohmyzsh/ohmyzsh/tar.gz/b509b1c6ed0c1ba37de12cbd37f30b2b2f61193a",
+      "destination": ".oh-my-zsh",
+      "module": "shell",
+      "sha256": "2c61648f01654f1782832c230007a48ce7c0475b4e190294af13cb2b568b1758"
+    },
+    {
+      "name": "uv",
+      "revision": "0.9.28",
+      "url": "https://github.com/astral-sh/uv/releases/download/0.9.28/uv-x86_64-unknown-linux-gnu.tar.gz",
+      "destination": ".local/bin",
+      "module": "uv",
+      "sha256": "66ad1822dd9cf96694b95c24f25bc05cff417a65351464da01682a91796d1f2b"
+    }
+  ]
+}

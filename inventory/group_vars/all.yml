@@ -1,0 +1,86 @@
+workstation_profile: base
+workstation_user: developer
+workstation_uid: 1000
+workstation_gid: 1000
+workstation_home: "/home/{{ workstation_user }}"
+workstation_timezone: Europe/Paris
+windows_home: ''
+workstation_projects: "{{ workstation_home }}/devops"
+toolz_path: "{{ workstation_projects }}/Toolz"
+git_name: ""
+git_email: ""
+git_pull_rebase: 'true'
+bastion_ssh_target: ''
+zensical_docs_directory: ''
+enable_docker: true
+enable_terraform: true
+enable_node: true
+enable_uv: true
+enable_bedrock: false
+enable_corporate_ca: false
+aws_region: eu-west-1
+# Keep enabled only after Toolz has been restored and its scripts reviewed.
+enable_local_autostart: false
+enable_aws_windows_link: false
+enable_azure_windows_link: false
+corporate_ca_directory: "{{ playbook_dir }}/private/ca"
+# Captured binaries are checksummed by capture-assets.py, with no credentials.
+assets_directory: "{{ playbook_dir }}/private/assets"
+extra_apt_packages: []
+base_apt_packages:
+  - age
+  - ansible
+  - ansible-lint
+  - apt-transport-https
+  - bat
+  - bc
+  - build-essential
+  - ca-certificates
+  - cifs-utils
+  - curl
+  - default-jre
+  - dnsutils
+  - dos2unix
+  - eza
+  - fd-find
+  - fzf
+  - git
+  - glab
+  - gnupg
+  - golang
+  - graphviz
+  - htop
+  - iproute2
+  - iputils-ping
+  - jq
+  - locales
+  - micro
+  - netcat-traditional
+  - pass
+  - pipx
+  - poppler-utils
+  - postgresql-client
+  - putty-tools
+  - python3
+  - python3-diagrams
+  - python3-openssl
+  - python3-tk
+  - python3-pip
+  - python3-venv
+  - ripgrep
+  - rsync
+  - sudo
+  - systemd
+  - systemd-sysv
+  - tesseract-ocr
+  - traceroute
+  - tree
+  - unixodbc
+  - unixodbc-dev
+  - unzip
+  - vim-nox
+  - wget
+  - xz-utils
+  - yamllint
+  - zip
+  - zsh

@@ -1,0 +1,12 @@
+---
+- name: Install local corporate CA certificates
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/share/ca-certificates/{{ item | basename | regex_replace('[^A-Za-z0-9_.-]', '_') }}"
+    mode: '0644'
+  with_fileglob:
+    - "{{ corporate_ca_directory }}/*.crt"
+  notify: Update certificate bundle
+
+- name: Apply certificate trust before downloads
+  ansible.builtin.meta: flush_handlers

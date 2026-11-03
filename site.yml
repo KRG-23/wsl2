@@ -1,0 +1,38 @@
+---
+- name: Reproduce Debian WSL workstation
+  hosts: localhost
+  become: true
+  pre_tasks:
+    - name: Require Debian 13 amd64
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Debian'
+          - ansible_facts.distribution_major_version == '13'
+          - ansible_facts.architecture == 'x86_64'
+        fail_msg: This release supports Debian 13 amd64 only; Informix and captured binaries are architecture-specific.
+    - name: Load captured tool versions
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/manifests/tools.yml"
+    - name: Load versions captured from source runtimes
+      ansible.builtin.include_vars:
+        file: "{{ assets_directory }}/versions.yml"
+      when: workstation_profile == 'migration'
+    - name: Inspect first-boot provisioning marker
+      ansible.builtin.stat:
+        path: /var/lib/wsl2-workstation/bootstrap-ready
+      register: bootstrap_marker
+    - name: Require target bootstrap marker
+      ansible.builtin.assert:
+        that: bootstrap_marker.stat.exists
+        fail_msg: Run scripts/bootstrap-debian.sh inside the NEW distro first. Never provision the source workstation.
+    - name: Inspect PID 1
+      ansible.builtin.command: cat /proc/1/comm
+      register: init_process
+      changed_when: false
+      check_mode: false
+    - name: Require the target systemd boot
+      ansible.builtin.assert:
+        that: init_process.stdout == 'systemd'
+        fail_msg: Restart the TARGET distro from PowerShell after bootstrap so that systemd is PID 1, then rerun this playbook.
+  roles:
+    - workstation

@@ -1,0 +1,289 @@
+---
+- name: Check target directories
+  ansible.builtin.assert:
+    that:
+      - workstation_home == '/home/' + workstation_user
+      - windows_home == '' or windows_home is match('^/mnt/[a-z]/Users/[^/]+$')
+      - workstation_user != 'root'
+      - workstation_profile in ['base', 'migration']
+      - workstation_user is match('^[a-z_][a-z0-9_-]*$')
+
+- name: Create primary group
+  ansible.builtin.group:
+    name: "{{ workstation_user }}"
+    gid: "{{ workstation_gid }}"
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ base_apt_packages + extra_apt_packages }}"
+    update_cache: true
+    cache_valid_time: 3600
+    state: present
+
+- name: Configure user
+  ansible.builtin.user:
+    name: "{{ workstation_user }}"
+    uid: "{{ workstation_uid }}"
+    group: "{{ workstation_user }}"
+    groups: sudo
+    append: true
+    home: "{{ workstation_home }}"
+    shell: /usr/bin/zsh
+
+- name: Configure optional enterprise certificate trust
+  ansible.builtin.include_tasks: certificates.yml
+  when: enable_corporate_ca
+
+- name: Configure timezone
+  ansible.builtin.file:
+    src: "/usr/share/zoneinfo/{{ workstation_timezone }}"
+    dest: /etc/localtime
+    state: link
+    force: true
+
+- name: Enable English UTF-8 locale
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#?\s*en_US.UTF-8 UTF-8$'
+    line: en_US.UTF-8 UTF-8
+  notify: Generate locales
+
+- name: Configure default locale
+  ansible.builtin.copy:
+    content: "LANG=en_US.UTF-8\nLANGUAGE=en_US:en\n"
+    dest: /etc/default/locale
+    mode: '0644'
+
+- name: Enable systemd and default WSL user
+  ansible.builtin.template:
+    src: wsl.conf.j2
+    dest: /etc/wsl.conf
+    mode: '0644'
+
+- name: Create repository key directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download vendor signing keys
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/etc/apt/keyrings/{{ item.name }}.asc"
+    mode: '0644'
+  loop:
+    - {name: docker, enabled: '{{ enable_docker }}', url: 'https://download.docker.com/linux/debian/gpg'}
+    - {name: hashicorp, enabled: '{{ enable_terraform }}', url: 'https://apt.releases.hashicorp.com/gpg'}
+    - {name: nodesource, enabled: '{{ enable_node }}', url: 'https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key'}
+  when: item.enabled | bool
+
+- name: Configure signed vendor repositories
+  ansible.builtin.copy:
+    content: "{{ item.content }}\n"
+    dest: "/etc/apt/sources.list.d/workstation-{{ item.name }}.list"
+    mode: '0644'
+  loop:
+    - name: docker
+      enabled: '{{ enable_docker }}'
+      content: deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable
+    - name: hashicorp
+      enabled: '{{ enable_terraform }}'
+      content: deb [arch=amd64 signed-by=/etc/apt/keyrings/hashicorp.asc] https://apt.releases.hashicorp.com trixie main
+    - name: nodesource
+      enabled: '{{ enable_node }}'
+      content: "deb [arch=amd64 signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_{{ node_major }}.x nodistro main"
+  when: item.enabled | bool
+  register: vendor_repos
+
+- name: Install enabled vendor packages
+  ansible.builtin.apt:
+    name: "{{ (['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-buildx-plugin', 'docker-compose-plugin'] if enable_docker else []) + (['terraform=' + terraform_version + '-1'] if enable_terraform else []) + (['nodejs'] if enable_node else []) }}"
+    state: present
+    update_cache: "{{ vendor_repos.changed }}"
+  when: enable_docker or enable_terraform or enable_node
+
+- name: Grant local Docker access
+  ansible.builtin.user:
+    name: "{{ workstation_user }}"
+    groups: docker
+    append: true
+  when: enable_docker
+
+- name: Start Docker under systemd
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+  when: enable_docker
+
+- name: Create user configuration directories
+  ansible.builtin.file:
+    path: "{{ workstation_home }}/{{ item }}"
+    state: directory
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0755'
+  loop:
+    - .local/bin
+    - .config/zsh
+    - .config/workstation
+    - .oh-my-zsh
+    - devops
+    - go/bin
+
+- name: Install portable public shell tools
+  ansible.builtin.import_tasks: public-tools.yml
+  when: workstation_profile == 'base'
+
+- name: Restore private migration assets
+  ansible.builtin.import_tasks: assets.yml
+  when: workstation_profile == 'migration'
+
+- name: Install portable Debian command names
+  ansible.builtin.file:
+    src: "{{ item.src }}"
+    dest: "{{ workstation_home }}/.local/bin/{{ item.name }}"
+    state: link
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+  loop:
+    - {src: /usr/bin/batcat, name: bat}
+    - {src: /usr/bin/fdfind, name: fd}
+
+- name: Inspect installed npm versions
+  ansible.builtin.command:
+    argv: [npm, list, --global, --depth=0, --json]
+  register: installed_npm
+  changed_when: false
+  failed_when: installed_npm.rc not in [0, 1]
+  when: enable_node and workstation_profile == 'migration'
+  check_mode: false
+
+- name: Install versioned global npm tools
+  ansible.builtin.command:
+    argv: [npm, install, --global, "{{ item.package }}@{{ item.version }}"]
+  loop:
+    - {package: '@openai/codex', version: '{{ codex_version }}'}
+    - {package: '@anthropic-ai/claude-code', version: '{{ claude_version }}'}
+    - {package: yarn, version: '{{ yarn_version }}'}
+  when:
+    - enable_node
+    - workstation_profile == 'migration'
+    - item.version | length > 0
+    - (installed_npm.stdout | from_json).get('dependencies', {}).get(item.package, {}).get('version', '') != item.version
+  register: npm_install
+  changed_when: "'added ' in npm_install.stdout or 'changed ' in npm_install.stdout or 'removed ' in npm_install.stdout"
+
+- name: Install Pre-commit with pipx
+  become_user: "{{ workstation_user }}"
+  ansible.builtin.command:
+    argv: [pipx, install, "pre-commit=={{ pre_commit_version }}"]
+    creates: "{{ workstation_home }}/.local/bin/pre-commit"
+  environment:
+    HOME: "{{ workstation_home }}"
+  when: pre_commit_version | length > 0
+
+- name: Deploy Zsh configuration
+  ansible.builtin.template:
+    src: zshrc.j2
+    dest: "{{ workstation_home }}/.zshrc"
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+    backup: true
+    validate: /usr/bin/zsh -n %s
+
+- name: Deploy shell functions and Vim settings
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ workstation_home }}/{{ item.dest }}"
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+    backup: true
+  loop:
+    - {src: devops-tools.zsh, dest: .config/zsh/devops-tools.zsh}
+    - {src: vimrc, dest: .vimrc}
+
+- name: Configure Bash developer environment
+  ansible.builtin.blockinfile:
+    path: "{{ workstation_home }}/.bashrc"
+    create: true
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+    block: |
+      export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
+      export AWS_REGION={{ aws_region | quote }}
+      export AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      export REQUESTS_CA_BUNDLE="$AWS_CA_BUNDLE"
+      {% if enable_bedrock %}
+      export CLAUDE_CODE_USE_BEDROCK=1
+      {% endif %}
+
+- name: Deploy optional personal migration helpers
+  ansible.builtin.copy:
+    src: migration-tools.zsh
+    dest: "{{ workstation_home }}/.config/zsh/migration-tools.zsh"
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+    backup: true
+  when: workstation_profile == 'migration'
+
+- name: Read existing Git defaults
+  become_user: "{{ workstation_user }}"
+  ansible.builtin.command:
+    argv: [git, config, --global, --get, "{{ item }}"]
+  environment:
+    HOME: "{{ workstation_home }}"
+  loop: [user.name, user.email, pull.rebase, init.defaultbranch]
+  register: git_defaults
+  changed_when: false
+  failed_when: git_defaults.rc not in [0, 1]
+  check_mode: false
+  no_log: true
+
+- name: Set explicit Git defaults without transferring plaintext credentials
+  become_user: "{{ workstation_user }}"
+  ansible.builtin.command:
+    argv: [git, config, --global, "{{ item.key }}", "{{ item.value }}"]
+  environment:
+    HOME: "{{ workstation_home }}"
+  loop:
+    - {key: user.name, value: '{{ git_name }}'}
+    - {key: user.email, value: '{{ git_email }}'}
+    - {key: pull.rebase, value: '{{ git_pull_rebase }}'}
+    - {key: init.defaultbranch, value: main}
+  loop_control:
+    index_var: git_index
+  when:
+    - item.value | length > 0
+    - git_defaults.results[git_index].stdout != item.value
+  register: set_git_default
+  changed_when: set_git_default.rc == 0
+  no_log: true
+
+- name: Check Windows cloud directories
+  ansible.builtin.stat:
+    path: "{{ windows_home }}/{{ item }}"
+  loop: [.aws, .azure]
+  register: cloud_dirs
+  when: windows_home | length > 0
+
+- name: Recreate cloud links only when Windows directories exist
+  ansible.builtin.file:
+    src: "{{ windows_home }}/{{ item.item }}"
+    dest: "{{ workstation_home }}/{{ item.item }}"
+    state: link
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+  loop: "{{ cloud_dirs.results }}"
+  when:
+    - not (item.skipped | default(false))
+    - item.stat.isdir | default(false)
+    - (item.item == '.aws' and enable_aws_windows_link) or (item.item == '.azure' and enable_azure_windows_link)
+
+- name: Explain activation
+  ansible.builtin.debug:
+    msg: Log out and restart the target WSL distro before using Docker. Restore Toolz and review local.yml before enabling autostart. Run verify.py after migration.

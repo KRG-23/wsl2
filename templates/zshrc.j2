@@ -1,0 +1,29 @@
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="agnoster"
+plugins=(git fzf)
+source "$ZSH/oh-my-zsh.sh"
+export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"
+export EDITOR=micro
+export VISUAL=code
+export AWS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export REQUESTS_CA_BUNDLE="$AWS_CA_BUNDLE"
+export AWS_REGION={{ aws_region | quote }}
+{% if enable_bedrock %}
+export CLAUDE_CODE_USE_BEDROCK=1
+{% endif %}
+export TOOLZ_PATH={{ toolz_path | quote }}
+export WORKSTATION_PROJECTS={{ workstation_projects | quote }}
+export WORKSTATION_HOME={{ workstation_home | quote }}
+export WORKSTATION_AUTOSTART={{ '1' if enable_local_autostart else '0' }}
+export BASTION_SSH_TARGET={{ bastion_ssh_target | quote }}
+export ZENSICAL_DOCS_DIRECTORY={{ zensical_docs_directory | quote }}
+export LS_COLORS="${LS_COLORS}:*.yml=01;38;5;81:*.yaml=01;38;5;81:*.j2=38;5;215:*.ini=38;5;149:*.cfg=38;5;149:*.vault=01;38;5;198"
+if [[ -d /opt/IBM/informix ]]; then
+  export INFORMIXDIR=/opt/IBM/informix
+  export PATH="$INFORMIXDIR/bin:$PATH"
+  export LD_LIBRARY_PATH="$INFORMIXDIR/lib/cli:$INFORMIXDIR/lib/esql:$INFORMIXDIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+source "$HOME/.config/zsh/devops-tools.zsh"
+{% if workstation_profile == 'migration' %}
+source "$HOME/.config/zsh/migration-tools.zsh"
+{% endif %}

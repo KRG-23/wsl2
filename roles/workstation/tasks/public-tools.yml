@@ -1,0 +1,41 @@
+---
+- name: Load pinned public asset lock
+  ansible.builtin.set_fact:
+    public_assets: "{{ (lookup('ansible.builtin.file', playbook_dir + '/manifests/public-assets.json') | from_json).assets }}"
+
+- name: Create download cache
+  ansible.builtin.file:
+    path: /var/cache/wsl2-workstation
+    state: directory
+    mode: '0755'
+
+- name: Download pinned public tools
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/var/cache/wsl2-workstation/{{ item.name }}-{{ item.sha256 }}.tar.gz"
+    checksum: "sha256:{{ item.sha256 }}"
+    mode: '0644'
+  loop: "{{ public_assets }}"
+  when: item.module != 'uv' or enable_uv
+
+- name: Unpack public tools
+  ansible.builtin.unarchive:
+    src: "/var/cache/wsl2-workstation/{{ item.name }}-{{ item.sha256 }}.tar.gz"
+    remote_src: true
+    dest: "{{ workstation_home }}/{{ item.destination }}"
+    extra_opts: [--strip-components=1]
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    creates: "{{ workstation_home }}/.config/workstation/public-{{ item.sha256 }}"
+  loop: "{{ public_assets }}"
+  when: item.module != 'uv' or enable_uv
+
+- name: Record public asset version
+  ansible.builtin.copy:
+    content: "{{ item.revision }}\n"
+    dest: "{{ workstation_home }}/.config/workstation/public-{{ item.sha256 }}"
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+  loop: "{{ public_assets }}"
+  when: item.module != 'uv' or enable_uv

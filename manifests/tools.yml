@@ -1,0 +1,10 @@
+# Versions observed on the source. APT resolves supported Debian dependencies.
+# The migration profile overrides these from private captured metadata.
+terraform_version: 1.14.3
+node_major: '24'
+codex_version: 0.166.0
+# Filled by capture-assets.py from installed package.json, never "latest".
+claude_version: ''
+yarn_version: ''
+uv_version: 0.9.28
+pre_commit_version: 4.5.1

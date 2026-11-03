@@ -1,0 +1,86 @@
+---
+- name: Require captured assets
+  ansible.builtin.stat:
+    path: "{{ assets_directory }}/manifest.json"
+  register: assets_manifest
+
+- name: Require source asset capture
+  ansible.builtin.assert:
+    that: assets_manifest.stat.exists
+    fail_msg: Run capture-assets.py on the source then transfer private/assets securely before provisioning.
+
+- name: Load captured asset manifest
+  ansible.builtin.set_fact:
+    captured_assets: "{{ lookup('ansible.builtin.file', assets_directory + '/manifest.json') | from_json }}"
+
+- name: Check asset digests
+  ansible.builtin.stat:
+    path: "{{ assets_directory }}/{{ item.file }}"
+    checksum_algorithm: sha256
+  loop: "{{ captured_assets.assets }}"
+  register: asset_stats
+
+- name: Require unchanged captured assets
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.checksum == item.item.sha256
+  loop: "{{ asset_stats.results }}"
+  loop_control:
+    label: "{{ item.item.file }}"
+
+- name: Create asset destinations
+  ansible.builtin.file:
+    path: "{{ (workstation_home + '/' + item.destination if item.scope == 'home' else item.destination) | dirname }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ captured_assets.assets }}"
+
+- name: Install captured binaries
+  ansible.builtin.copy:
+    src: "{{ assets_directory }}/{{ item.file }}"
+    dest: "{{ workstation_home + '/' + item.destination if item.scope == 'home' else item.destination }}"
+    mode: '0755'
+    owner: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+    group: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+  loop: "{{ captured_assets.assets | selectattr('kind', 'equalto', 'binary') | list }}"
+
+- name: Create archive destinations
+  ansible.builtin.file:
+    path: "{{ workstation_home + '/' + item.destination if item.scope == 'home' else item.destination }}"
+    state: directory
+    owner: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+    group: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+    mode: '0755'
+  loop: "{{ captured_assets.assets | selectattr('kind', 'equalto', 'archive') | list }}"
+
+- name: Restore captured runtimes and Oh My Zsh
+  ansible.builtin.unarchive:
+    src: "{{ assets_directory }}/{{ item.file }}"
+    dest: "{{ workstation_home + '/' + item.destination if item.scope == 'home' else item.destination }}"
+    owner: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+    group: "{{ workstation_user if item.scope == 'home' else 'root' }}"
+    creates: "{{ workstation_home }}/.config/workstation/asset-{{ item.sha256 }}"
+  loop: "{{ captured_assets.assets | selectattr('kind', 'equalto', 'archive') | list }}"
+  register: asset_archives
+
+- name: Record restored archive digests
+  ansible.builtin.copy:
+    content: "{{ item.sha256 }}\n"
+    dest: "{{ workstation_home }}/.config/workstation/asset-{{ item.sha256 }}"
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+    mode: '0644'
+  loop: "{{ captured_assets.assets | selectattr('kind', 'equalto', 'archive') | list }}"
+
+- name: Install user command links
+  ansible.builtin.file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    owner: "{{ workstation_user }}"
+    group: "{{ workstation_user }}"
+  loop:
+    - {src: /usr/local/aws-cli/v2/current/bin/aws, dest: /usr/local/bin/aws, asset: aws-cli.tar.gz}
+    - {src: /usr/local/sessionmanagerplugin/bin/session-manager-plugin, dest: /usr/local/bin/session-manager-plugin, asset: sessionmanagerplugin.tar.gz}
+  when: item.asset in (captured_assets.assets | map(attribute='file') | list)
