@@ -24,7 +24,7 @@ def main():
     def check(name, ok):
         checks.append({'check': name, 'ok': bool(ok)})
 
-    tools = ['zsh', 'git', 'fd', 'bat', 'fzf', 'rg', 'micro', 'ansible', 'pre-commit']
+    tools = ['zsh', 'git', 'fd', 'bat', 'fzf', 'rg', 'dust', 'zoxide', 'micro', 'ansible', 'pre-commit']
     for name in ['terraform', 'node', 'uv']:
         if name not in a.without:
             tools.append(name)

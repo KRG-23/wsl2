@@ -3,8 +3,8 @@
 param(
     [ValidateSet('Prerequisites', 'Import', 'Configure', 'Export')]
     [string]$Stage = 'Prerequisites',
-    [string]$Distro = 'Debian-Workstation',
-    [string]$InstallLocation = "$env:LOCALAPPDATA\WSL\Debian-Workstation",
+    [string]$Distro = 'Debian',
+    [string]$InstallLocation = "$env:LOCALAPPDATA\WSL\Debian",
     [string]$Image,
     [string]$ImageSha256,
     [string]$ExportPath,

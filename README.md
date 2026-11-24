@@ -6,91 +6,58 @@ Deux profils sont disponibles :
 
 | Profil | Usage | Fichiers privés requis |
 | --- | --- | --- |
-| `base` | Installation autonome pour un collègue : Zsh/Agnoster, Fzf/Fd/Bat/Rg, Micro/Vim, Git, Python, Go, Ansible, Pre-commit ; Docker Engine, Terraform, Node 24 et UV optionnels | Aucun |
+| `base` | Installation autonome pour un collègue : Zsh/Agnoster, Fzf/Fd/Bat/Rg, Dust, Zoxide (`z`/`zi`), Micro/Vim, Git, Python, Go, Ansible, Pre-commit ; Docker Engine, Terraform, Node 24 et UV optionnels | Aucun |
 | `migration` | Reprendre un poste audité, ses outils supplémentaires, certificats, configurations et services locaux | Captures `private/` et configuration personnelle ; données transférées sous chiffrement |
 
 Le profil `base` ne déploie aucun alias personnel, démarrage Vault, configuration MCP, identité Git ou certificat d’entreprise. Les outils graphiques sont Windows Terminal, VS Code et Git for Windows. Le VPN et les logiciels gérés par l’entreprise restent à installer selon ses procédures.
 
-## Installation autonome
+Dust et Zoxide sont installés dans les deux profils via les paquets Debian 13
+[`du-dust`](https://packages.debian.org/trixie/du-dust) et
+[`zoxide`](https://packages.debian.org/trixie/zoxide). La commande est `dust` ;
+Zoxide est initialisé en fin de configuration Zsh pour fournir `z` et `zi`.
+Visiter d’abord les dossiers avec `cd` pour alimenter son historique.
 
-### 1. Préparer Windows
+## Installation autonome : suivre les étapes dans l’ordre
 
-Installer PowerShell 7 si nécessaire : `winget install --id Microsoft.PowerShell --exact`. Ouvrir **PowerShell 7 en administrateur**, cloner ce dépôt puis préparer WSL :
+Commencer par le **[guide d’installation pas à pas](docs/INSTALLATION.md)**.
+Il indique pour chaque étape le terminal, les droits, le répertoire courant,
+les commandes, le résultat attendu et le point de reprise après un redémarrage.
+Le nom de distribution utilisé est **`Debian`**.
 
-```powershell
-git clone https://github.com/KRG-23/wsl2.git
-cd wsl2
-pwsh -File windows/bootstrap.ps1 -Stage Prerequisites
-```
+| Ordre | Où ? | Objectif |
+| --- | --- | --- |
+| 1 | Windows, compte habituel | Installer Git, PowerShell 7, Windows Terminal et VS Code |
+| 2 | PowerShell 7 administrateur | Installer/mettre à jour WSL ; redémarrer Windows si demandé |
+| 3 | PowerShell 7, compte habituel | Récupérer la bonne version du dépôt et ouvrir un journal |
+| 4 | PowerShell 7, compte habituel | Importer Debian ou vérifier la Debian cible déjà présente |
+| 5 | Debian, `root` | Exécuter le bootstrap Linux |
+| 6 | PowerShell puis Debian `root` | Redémarrer Debian et contrôler systemd |
+| 7 | Debian, `root` | Copier le code dans `/opt/wsl2` sur le système de fichiers Linux |
+| 8 | Debian, `root`, `/opt/wsl2` | Choisir le login et créer/relire `local.yml` |
+| 9 | Debian, `root`, `/opt/wsl2` | Contrôler l’inventaire, appliquer Ansible, définir le mot de passe et vérifier la convergence |
+| 10 | PowerShell 7, compte habituel | Reconnecter l’utilisateur Linux et configurer Terminal/WSL |
+| 11 | Debian, utilisateur normal | Vérifier les outils, Docker et VS Code Remote–WSL |
 
-Si Git manque, installer d’abord `winget install --id Git.Git --exact` puis rouvrir le terminal. Si Windows demande un redémarrage, redémarrer et relancer l’étape. Exécuter les étapes suivantes avec son compte Windows habituel.
+Le parcours détaillé donne les commandes Windows individuellement : il ne
+nécessite pas que `windows/bootstrap.ps1 -Stage Prerequisites` fonctionne sur
+le poste. Le script PowerShell reste une option, avec une solution manuelle pour
+les paramètres de Terminal et du réseau.
 
-### 2. Importer une Debian isolée
-
-Le verrou [manifests/debian-image.json](manifests/debian-image.json) contient l’URL officielle et le SHA256 de l’image Debian WSL. Depuis PowerShell :
-
-```powershell
-$lock = Get-Content manifests/debian-image.json -Raw | ConvertFrom-Json
-New-Item -ItemType Directory -Force artifacts | Out-Null
-Invoke-WebRequest $lock.url -OutFile artifacts/debian.wsl
-pwsh -File windows/bootstrap.ps1 -Stage Import `
-  -Image "$PWD/artifacts/debian.wsl" -ImageSha256 $lock.sha256 `
-  -Distro Debian-Workstation
-wsl -d Debian-Workstation -u root
-```
-
-Le script refuse d’écraser une distribution existante. Une importation ne crée pas d’utilisateur. Dans Debian, utiliser le dépôt Windows monté, par exemple `/mnt/c/Users/mon-compte/wsl2` :
-
-```bash
-cd /mnt/c/Users/mon-compte/wsl2
-bash scripts/bootstrap-debian.sh --target-new-distro
-exit
-```
-
-Depuis PowerShell, redémarrer **cette** distribution puis rouvrir un shell root :
-
-```powershell
-wsl --terminate Debian-Workstation
-wsl -d Debian-Workstation -u root
-```
-
-### 3. Configurer et appliquer
-
-Dans Debian, depuis le dépôt :
+**`inventory/local.yml` est un fichier de surcharges, pas une configuration
+exhaustive du rôle.** Les valeurs communes viennent de
+`inventory/group_vars/all.yml`, chargé avec l’inventaire `inventory/hosts.yml`.
+Les commandes documentées passent donc toujours cet inventaire explicitement :
 
 ```bash
-python3 scripts/configure.py --user monlogin \
-  --windows-home /mnt/c/Users/mon-compte
-# Relire inventory/local.yml. Exemple complet : inventory/example.yml.
-ansible-playbook site.yml -e @inventory/local.yml
-passwd monlogin
+# Dans Debian, après le bootstrap et les contrôles du guide, depuis /opt/wsl2.
+ANSIBLE_CONFIG=/opt/wsl2/ansible.cfg \
+  ansible-playbook -i inventory/hosts.yml site.yml -e @inventory/local.yml
 ```
 
-`configure.py` crée un fichier privé en mode `0600` et refuse de remplacer un fichier existant. Les options `--without docker`, `--without terraform`, `--without node`, `--without uv` désactivent leur installation. Elles ne désinstallent pas les logiciels déjà présents. Les valeurs personnelles et les paquets supplémentaires peuvent être ajoutés à `inventory/local.yml`.
-
-Relancer la même commande Ansible pour faire converger la configuration. Depuis un utilisateur sudo, ajouter `-K`. Le provisionnement refuse un système autre que Debian 13 amd64 et exige le marqueur créé par le bootstrap du **poste cible**.
-
-### 4. Finaliser Windows et vérifier
-
-Fermer puis rouvrir Windows Terminal une première fois pour qu’il crée ses paramètres. Depuis PowerShell :
-
-```powershell
-pwsh -File windows/bootstrap.ps1 -Stage Configure `
-  -Distro Debian-Workstation -LinuxUser monlogin
-wsl --terminate Debian-Workstation
-wsl -d Debian-Workstation
-```
-
-Dans Debian :
-
-```bash
-# Depuis le dépôt, sous le nouvel utilisateur ; le PATH est chargé par Zsh.
-python3 scripts/verify.py --profile base --docker
-```
-
-Si un module est désactivé, adapter la vérification : `--without node`, `--without terraform`, `--without uv` et omettre `--docker` si nécessaire. Installer l’extension VS Code **Remote - WSL** côté Windows puis ouvrir les projets stockés dans le système de fichiers Linux.
-
-Le profil Terminal utilise Cascadia Mono, Agnoster et les couleurs du poste de référence. Le réseau WSL est configuré en `mirrored`, avec proxy automatique et DNS tunneling désactivé : ces réglages reprennent le poste audité et doivent être validés avec le VPN de chaque utilisateur. `Configure` sauvegarde et fusionne les paramètres existants ; il ne redémarre pas les autres distributions.
+Ne pas compenser un inventaire non chargé en recopiant toutes les variables du
+rôle dans `local.yml`. Le guide fournit un contrôle des variables avant toute
+application. Pour reprendre un essai interrompu ou comprendre une erreur, voir
+le [dépannage](docs/DEPANNAGE.md).
 
 ## Migrer un poste existant
 
@@ -105,7 +72,7 @@ python3 -m unittest discover -s tests -v
 bash -n scripts/bootstrap-debian.sh
 zsh -n files/devops-tools.zsh
 zsh -n files/migration-tools.zsh
-ansible-playbook --syntax-check site.yml
+ansible-playbook -i inventory/hosts.yml --syntax-check site.yml
 pwsh -NoProfile -File tests/test-windows.ps1
 ```
 

@@ -26,4 +26,4 @@ with p.open('w') as f:
 PY
 install -d -m 0755 /var/lib/wsl2-workstation
 touch /var/lib/wsl2-workstation/bootstrap-ready
-echo 'Restart THIS target distro from PowerShell, then run ansible-playbook site.yml -e @inventory/local.yml as root (or with -K from a sudo user).'
+echo 'Restart THIS target distro from PowerShell, then run ansible-playbook -i inventory/hosts.yml site.yml -e @inventory/local.yml as root (or with -K from a sudo user).'

@@ -30,6 +30,11 @@ Conserver les noms de fichiers de profils séparés ; ne jamais copier un home o
 
 ## Recette avant diffusion d’une version
 
+Pour l’ordre des terminaux, droits et redémarrages, utiliser
+[INSTALLATION.md](INSTALLATION.md). Si une variable du rôle manque, vérifier
+d’abord l’inventaire explicite selon [DEPANNAGE.md](DEPANNAGE.md), plutôt que de
+compléter artificiellement les surcharges `local.yml`.
+
 1. Exécuter les tests Python, les tests de fusion PowerShell et le contrôle syntaxique Ansible.
 2. Importer une **nouvelle distribution WSL de test**, appliquer le profil `base` sans aucun fichier privé, puis réexécuter le playbook : aucun changement inattendu ne doit subsister.
 3. Redémarrer WSL, vérifier le shell, le rendu Powerline, les liens Fd/Bat, les outils, Docker et l’accès VS Code Remote-WSL.

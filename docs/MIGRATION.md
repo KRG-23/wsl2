@@ -4,6 +4,17 @@ Conserver le même **nom d’utilisateur Linux, chemin du home et UID/GID**. Le 
 
 Ne jamais exécuter le bootstrap ou le playbook de provisionnement sur la source. Les commandes d’inventaire et de capture suivantes ne modifient pas sa configuration. Les sauvegardes Docker, elles, arrêtent temporairement les conteneurs lorsque les options correspondantes sont fournies.
 
+Les chapitres 1 à 3 s’exécutent sur le **poste source**, les chapitres 4 et 5 sur
+la **cible**. Lancer les commandes Linux depuis le dépôt indiqué et les commandes
+PowerShell depuis la copie Windows du dépôt, sous le compte Windows habituel.
+`monlogin` et les chemins `mon-compte` sont des exemples à adapter.
+
+Sur la source de référence, le dépôt et ses captures sont dans
+`~/devops/homelab/wsl2`. La copie d’installation publique `/opt/wsl2` décrite pour
+le profil `base` n’est pas automatiquement incluse dans la sauvegarde du home :
+si les captures ont été créées ailleurs, les inclure dans un arbre sauvegardé ou
+les transférer séparément sous chiffrement avant de continuer.
+
 ## 1. Inventorier et capturer sur la source
 
 ```bash
@@ -70,7 +81,19 @@ Les images Docker ne sont pas des volumes. Le manifeste conserve leurs digests e
 
 ## 4. Restaurer sur la cible
 
-Préparer une Debian neuve avec les étapes Windows/import/bootstrap du README. Utiliser le même utilisateur Linux. Le staging doit se trouver sur le système de fichiers Linux, dans un répertoire privé encore inexistant, hors du home final :
+Sur la **cible**, suivre [INSTALLATION.md](INSTALLATION.md) jusqu’à la fin de
+l’étape 7 incluse : outils Windows, import, bootstrap Debian, redémarrage avec
+systemd, copie du code dans `/opt/wsl2`. Rester dans Debian **root**, puis :
+
+```bash
+cd /opt/wsl2
+```
+
+Ne pas générer de configuration `base` et ne pas lancer encore Ansible. Les
+surcharges `migration` et leurs captures privées seront récupérées depuis la
+sauvegarde. Le compte Linux doit avoir le même nom, home et UID/GID que sur la source.
+
+Le staging doit se trouver sur le système de fichiers Linux, dans un répertoire privé encore inexistant, hors du home final :
 
 ```bash
 sudo python3 scripts/migration.py restore /mnt/d/Migration/workstation.age \
@@ -79,31 +102,81 @@ sudo python3 scripts/migration.py restore /mnt/d/Migration/workstation.age \
 
 La restauration vérifie l’authentification du flux chiffré et refuse les chemins dangereux. Elle ne copie rien vers le home final. Examiner `manifest.json` : dossiers inclus, exclusions de bind mounts, liens omis et volumes. Le marqueur `.verified` n’est créé qu’après succès complet.
 
-Pour rendre les outils capturés accessibles au playbook, récupérer d’abord le dépôt et ses fichiers privés depuis le staging vers le home cible. Sur une distribution importée, créer le compte avant de copier :
+Récupérer les captures privées et les surcharges dans le répertoire qui servira
+effectivement à Ansible. Le chemin du dépôt archivé ci-dessous correspond au
+poste de référence ; l’adapter si la source utilisait un autre emplacement.
+
+Avant de continuer, contrôler `getent passwd 1000` et `getent group 1000`. Si
+l’identité est déjà occupée par un autre utilisateur, résoudre cette différence
+avant de provisionner. Le rôle créera le compte attendu sur une Debian importée
+vide ; il n’est pas nécessaire de créer manuellement un utilisateur différent.
 
 ```bash
-# En root sur la CIBLE uniquement ; adapter le login mais garder celui de la source.
-groupadd -g 1000 monlogin
-useradd -m -u 1000 -g 1000 -G sudo -s /usr/bin/zsh monlogin
-mkdir -p /home/monlogin/devops/homelab
-cp -a /var/tmp/wsl2-restore/home/devops/homelab/wsl2 /home/monlogin/devops/homelab/
-cd /home/monlogin/devops/homelab/wsl2
-# Éditer inventory/local.yml : windows_home du NOUVEAU compte Windows.
-ansible-playbook site.yml -e @inventory/local.yml
+# En root sur la CIBLE uniquement.
+saved_repo=/var/tmp/wsl2-restore/home/devops/homelab/wsl2
+test -d "$saved_repo/private"
+test -f "$saved_repo/inventory/local.yml"
+```
+
+Les deux contrôles `test` doivent réussir (code de retour `0`). Si les captures
+sont ailleurs dans l’archive, utiliser leur emplacement réel ; ne pas appliquer
+le profil avec des fichiers manquants. Dans le même shell, après ces contrôles :
+
+```bash
+cp -a "$saved_repo/private" /opt/wsl2/
+install -m 0600 "$saved_repo/inventory/local.yml" /opt/wsl2/inventory/local.yml
+cd /opt/wsl2
+nano inventory/local.yml
+```
+
+Contrôler `workstation_profile: migration`, le login source, `windows_home` du
+**nouveau** compte Windows et `assets_directory` vers les captures restaurées
+(de préférence un chemin relatif à `{{ playbook_dir }}`). Garder
+`enable_local_autostart: false` jusqu’à la fin de la restauration, pour éviter le
+démarrage d’applications avant leurs données. Le `local.yml` copié plus tard
+dans un dépôt du home ne remplace pas ce fichier actif sous `/opt/wsl2`.
+
+Puis lancer le premier passage :
+
+```bash
+export ANSIBLE_CONFIG=/opt/wsl2/ansible.cfg
+ansible-playbook -i inventory/hosts.yml site.yml -e @inventory/local.yml
+```
+
+Après un récapitulatif avec `failed=0` et `unreachable=0` seulement, définir le
+mot de passe du compte créé ; remplacer par le login source :
+
+```bash
 passwd monlogin
 ```
 
-Si le compte existe déjà avec UID/GID 1000, ne pas le recréer. Le chemin de dépôt ci-dessus est celui du poste de référence ; adapter si le dépôt était placé ailleurs. La procédure de staging ne restaure pas automatiquement une archive sur le poste qui l’a produite.
+Ne pas ouvrir encore de session utilisateur de travail. Rester root pour la
+copie et le second passage Ansible ; la procédure de staging ne déploie pas
+automatiquement l’archive dans le home final.
 
-Arrêter les conteneurs éventuellement démarrés sur la cible. Prévisualiser la copie puis appliquer les mêmes paramètres :
+Arrêter les conteneurs éventuellement démarrés sur la cible. Prévisualiser la copie :
 
 ```bash
 sudo python3 scripts/deploy-restored.py --staging /var/tmp/wsl2-restore \
   --home /home/monlogin --windows-home /mnt/c/Users/nouveau-compte --volumes
+```
+
+Lire le rapport privé `.deployment-preview-*.txt` dans le staging. Après
+vérification des fichiers et volumes concernés, appliquer les mêmes paramètres :
+
+```bash
 sudo python3 scripts/deploy-restored.py --staging /var/tmp/wsl2-restore \
   --home /home/monlogin --windows-home /mnt/c/Users/nouveau-compte --volumes --apply
-ansible-playbook site.yml -e @inventory/local.yml
 ```
+
+Après réussite de la copie, réappliquer la configuration cible :
+
+```bash
+ansible-playbook -i inventory/hosts.yml site.yml -e @inventory/local.yml
+```
+
+Ces commandes se lancent toujours depuis `/opt/wsl2`, sous root. Le dernier
+playbook réapplique la configuration cible après la copie des anciens dotfiles.
 
 Les fichiers remplacés sont conservés dans un dossier de retour arrière. Un rapport privé `.deployment-preview-*.txt` dans le staging liste les fichiers qui changeraient ; l’examiner avant `--apply`. Les volumes cibles doivent être neufs ou vides : fusionner deux jeux de fichiers de base de données est refusé. L’absence de `--volumes` laisse les volumes dans le staging.
 
@@ -111,14 +184,37 @@ Les réglages Windows Terminal et VS Code sont préparés dans `%USERPROFILE%\.w
 
 ## 5. Recette et bascule
 
-Depuis le nouvel utilisateur, après redémarrage de la distribution :
+Quitter le shell root. Dans PowerShell normal :
 
-```bash
-python3 scripts/verify.py --profile migration --docker --toolz --cloud-links
-python3 scripts/restore-extensions.py artifacts/source-final.json --surface wsl --apply
+```powershell
+wsl --terminate Debian
+wsl -d Debian -u monlogin
 ```
 
-L’inventaire sous `artifacts/` est exclu de l’archive pour éviter les caches ; transférer séparément ce petit fichier privé si nécessaire. Installer les extensions Windows depuis PowerShell avec `python scripts/restore-extensions.py ... --surface windows --code code.cmd --apply`, si Python Windows est disponible, ou avec les IDs de `windows/collect.ps1` et `code.cmd --install-extension`.
+Depuis le nouvel utilisateur, utiliser le code sous `/opt/wsl2` :
+
+```bash
+cd /opt/wsl2
+python3 scripts/verify.py --profile migration --docker --toolz --cloud-links
+```
+
+**Attendu :** contrôles JSON à `true`. Pour restaurer aussi les extensions VS Code,
+transférer séparément l’inventaire privé `artifacts/source-final.json` de la source :
+`artifacts/` est exclu de l’archive. Placer le fichier dans un dossier privé du
+home cible, par exemple `~/migration-privee/source-final.json`, puis vérifier
+sa présence avant la restauration facultative :
+
+```bash
+test -f "$HOME/migration-privee/source-final.json" && echo 'Inventaire présent.'
+```
+
+Après confirmation :
+
+```bash
+python3 scripts/restore-extensions.py "$HOME/migration-privee/source-final.json" --surface wsl --apply
+```
+
+Installer les extensions Windows depuis PowerShell avec `python scripts/restore-extensions.py CHEMIN_INVENTAIRE --surface windows --code code.cmd --apply`, si Python Windows est disponible, ou avec les IDs de `windows/collect.ps1` et `code.cmd --install-extension`.
 
 Vérifier les accès Git Linux/Windows, SSH, CA/TLS, DNS/VPN et refaire les authentifications SSO/OAuth et les connexions aux registres Docker. Les images construites localement doivent être chargées avant de reprendre les applications. Prévisualiser puis reprendre les projets Compose avec leurs digests d’origine :
 

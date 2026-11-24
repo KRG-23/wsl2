@@ -27,5 +27,4 @@ bastion-rdp() {
 }
 if [[ -o interactive && ${WORKSTATION_AUTOSTART:-0} == 1 ]]; then
   [[ -x "$TOOLZ_PATH/docker-tools/vault/local/ensure-on-login.sh" ]] && "$TOOLZ_PATH/docker-tools/vault/local/ensure-on-login.sh"
-  [[ -f "$TOOLZ_PATH/grafana-local/migration/start.sh" ]] && bash "$TOOLZ_PATH/grafana-local/migration/start.sh"
 fi

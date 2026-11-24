@@ -27,3 +27,8 @@ source "$HOME/.config/zsh/devops-tools.zsh"
 {% if workstation_profile == 'migration' %}
 source "$HOME/.config/zsh/migration-tools.zsh"
 {% endif %}
+
+# Initialize after plugins and helpers so z/zi and directory tracking stay active.
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init zsh)"
+fi

@@ -1,4 +1,6 @@
-# Copy to ignored inventory/local.yml or run scripts/configure.py.
+# Surcharges seulement : valeurs communes dans inventory/group_vars/all.yml.
+# Charger avec -i inventory/hosts.yml ; ce fichier ne remplace pas un inventaire.
+# Copier vers inventory/local.yml (ignoré par Git) ou utiliser scripts/configure.py.
 workstation_profile: base
 workstation_user: developer
 workstation_uid: 1000
